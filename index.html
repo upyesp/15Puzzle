@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>15 Puzzle</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3a;
+      --text: #e4e6ed;
+      --muted: #8b8fa3;
+      --accent: #6c8cff;
+      --tile-bg: #252836;
+      --tile-hover: #2f3347;
+      --tile-number: #e8ebf5;
+      --win-gold: #ffd166;
+      --gap: 6px;
+      --radius: 10px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    h1 {
+      font-size: clamp(1.5rem, 4vw, 2rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 24px;
+    }
+
+    /* Stats bar */
+    .stats {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 20px;
+      width: min(100%, 380px);
+    }
+
+    .stat {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .stat-value {
+      font-size: 1.25rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--accent);
+    }
+
+    .stat-value.gold {
+      color: var(--win-gold);
+    }
+
+    /* Board */
+    .board-wrapper {
+      position: relative;
+      width: min(85vw, 380px);
+      aspect-ratio: 1 / 1;
+      margin-bottom: 24px;
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      grid-template-rows: repeat(4, 1fr);
+      gap: var(--gap);
+      width: 100%;
+      height: 100%;
+      padding: var(--gap);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 4px);
+    }
+
+    .tile {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: clamp(1.2rem, 5vw, 2rem);
+      font-weight: 700;
+      border-radius: var(--radius);
+      background: var(--tile-bg);
+      color: var(--tile-number);
+      cursor: pointer;
+      transition: transform 0.12s ease, background 0.12s ease, box-shadow 0.15s ease;
+      border: 1px solid transparent;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .tile:not(.empty):hover {
+      background: var(--tile-hover);
+      transform: scale(1.03);
+    }
+
+    .tile:not(.empty):active {
+      transform: scale(0.97);
+    }
+
+    .tile.empty {
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    /* Win overlay */
+    .win-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 17, 23, 0.85);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-radius: calc(var(--radius) + 4px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.35s ease;
+      z-index: 10;
+    }
+
+    .win-overlay.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .win-icon {
+      font-size: 3rem;
+      margin-bottom: 8px;
+    }
+
+    .win-text {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--win-gold);
+    }
+
+    .win-sub {
+      color: var(--muted);
+      margin-top: 4px;
+      margin-bottom: 20px;
+      font-size: 0.95rem;
+    }
+
+    /* Buttons */
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      width: min(100%, 380px);
+    }
+
+    button {
+      flex: 1;
+      padding: 12px 16px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.1s ease;
+    }
+
+    button:active { transform: scale(0.97); }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover { filter: brightness(1.15); }
+
+    .btn-secondary {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .btn-secondary:hover { background: var(--tile-hover); }
+
+    /* Personal best animation */
+    @keyframes pulse-gold {
+      0%   { box-shadow: 0 0 0 0 rgba(255, 209, 102, 0.4); }
+      70%  { box-shadow: 0 0 0 12px rgba(255, 209, 102, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(255, 209, 102, 0); }
+    }
+
+    .stat-value.new-best {
+      animation: pulse-gold 1s ease-out;
+      color: var(--win-gold) !important;
+    }
+  </style>
+</head>
+<body>
+  <h1>15 Puzzle</h1>
+  <p class="subtitle">Slide tiles to order them 1–15</p>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-label">Moves</div>
+      <div class="stat-value" id="moves">0</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Time</div>
+      <div class="stat-value" id="timer">0:00</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Best</div>
+      <div class="stat-value gold" id="best">—</div>
+    </div>
+  </div>
+
+  <div class="board-wrapper">
+    <div class="board" id="board"></div>
+    <div class="win-overlay" id="overlay">
+      <div class="win-icon">&#x1F3C6;</div>
+      <div class="win-text">Solved!</div>
+      <div class="win-sub" id="win-info"></div>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn-primary" onclick="newGame()">New Game</button>
+    <button class="btn-secondary" onclick="resetBest()">Reset Best</button>
+  </div>
+
+  <script>
+    (() => {
+      // --- State ---
+      let tiles = [];        // flat array, 0 = empty
+      let moves = 0;
+      let timerStart = null;
+      let intervalId = null;
+      let won = false;
+
+      const boardEl   = document.getElementById('board');
+      const movesEl   = document.getElementById('moves');
+      const timerEl   = document.getElementById('timer');
+      const bestEl    = document.getElementById('best');
+      const overlayEl = document.getElementById('overlay');
+      const winInfoEl = document.getElementById('win-info');
+
+      // --- Persistence ---
+      function getBest() {
+        return JSON.parse(localStorage.getItem('puzzle15-best') || 'null');
+      }
+
+      function setBest(time, moveCount) {
+        localStorage.setItem('puzzle15-best', JSON.stringify({ time, moves: moveCount }));
+      }
+
+      function renderBest() {
+        const b = getBest();
+        bestEl.textContent = b ? formatTime(b.time) : '—';
+      }
+
+      // --- Formatting ---
+      function formatTime(seconds) {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m}:${s.toString().padStart(2, '0')}`;
+      }
+
+      function updateTimer() {
+        if (timerStart === null || won) return;
+        const elapsed = Math.floor((Date.now() - timerStart) / 1000);
+        timerEl.textContent = formatTime(elapsed);
+      }
+
+      // --- Board rendering ---
+      function renderBoard() {
+        boardEl.innerHTML = '';
+        for (let i = 0; i < tiles.length; i++) {
+          const tile = document.createElement('div');
+          tile.className = 'tile' + (tiles[i] === 0 ? ' empty' : '');
+          tile.textContent = tiles[i] || '';
+          if (tiles[i] !== 0) {
+            tile.addEventListener('click', () => handleClick(i));
+            // Touch: prevent double-fire with click
+            tile.addEventListener('touchend', e => {
+              e.preventDefault();
+              handleClick(i);
+            });
+          }
+          boardEl.appendChild(tile);
+        }
+      }
+
+      function handleClick(index) {
+        if (won) return;
+        const emptyIdx = tiles.indexOf(0);
+        if (!isAdjacent(index, emptyIdx)) return;
+
+        // Swap
+        [tiles[index], tiles[emptyIdx]] = [tiles[emptyIdx], tiles[index]];
+        moves++;
+        movesEl.textContent = moves;
+
+        if (timerStart === null) {
+          timerStart = Date.now();
+          intervalId = setInterval(updateTimer, 250);
+        }
+
+        renderBoard();
+
+        if (checkWin()) handleWin();
+      }
+
+      function isAdjacent(a, b) {
+        const rowA = Math.floor(a / 4), colA = a % 4;
+        const rowB = Math.floor(b / 4), colB = b % 4;
+        return (Math.abs(rowA - rowB) + Math.abs(colA - colB)) === 1;
+      }
+
+      // --- Win check ---
+      function checkWin() {
+        for (let i = 0; i < tiles.length - 1; i++) {
+          if (tiles[i] !== i + 1) return false;
+        }
+        return true;
+      }
+
+      function handleWin() {
+        won = true;
+        clearInterval(intervalId);
+        const elapsed = Math.floor((Date.now() - timerStart) / 1000);
+        winInfoEl.textContent = `${moves} moves in ${formatTime(elapsed)}`;
+
+        // Check personal best
+        let isNewBest = false;
+        const prev = getBest();
+        if (!prev || elapsed < prev.time) {
+          setBest(elapsed, moves);
+          isNewBest = true;
+        }
+        renderBest();
+        if (isNewBest) {
+          bestEl.classList.add('new-best');
+          setTimeout(() => bestEl.classList.remove('new-best'), 1200);
+        }
+
+        overlayEl.classList.add('show');
+      }
+
+      // --- Shuffling ---
+      function shuffle() {
+        // Start solved, then perform random valid moves to guarantee solvability.
+        tiles = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0];
+        let emptyIdx = 15;
+        let lastDir = -1;
+
+        // More moves for a better shuffle on mobile
+        const numMoves = isMobile() ? 200 : 150;
+
+        for (let i = 0; i < numMoves; i++) {
+          const neighbors = getNeighbors(emptyIdx);
+          const filtered = neighbors.filter(n => n !== lastDir);
+          const pick = filtered[Math.floor(Math.random() * filtered.length)];
+          [tiles[emptyIdx], tiles[pick]] = [tiles[pick], tiles[emptyIdx]];
+          lastDir = emptyIdx;
+          emptyIdx = pick;
+        }
+
+        // Second pass: also avoid undoing the last move to ensure good mixing
+        for (let i = 0; i < numMoves / 2; i++) {
+          const neighbors = getNeighbors(emptyIdx);
+          const filtered = neighbors.filter(n => n !== lastDir);
+          const pick = filtered[Math.floor(Math.random() * filtered.length)];
+          [tiles[emptyIdx], tiles[pick]] = [tiles[pick], tiles[emptyIdx]];
+          lastDir = emptyIdx;
+          emptyIdx = pick;
+        }
+      }
+
+      function getNeighbors(idx) {
+        const row = Math.floor(idx / 4);
+        const col = idx % 4;
+        const n = [];
+        if (row > 0) n.push(idx - 4);
+        if (row < 3) n.push(idx + 4);
+        if (col > 0) n.push(idx - 1);
+        if (col < 3) n.push(idx + 1);
+        return n;
+      }
+
+      function isMobile() {
+        return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      }
+
+      // --- New game ---
+      window.newGame = function () {
+        won = false;
+        moves = 0;
+        timerStart = null;
+        clearInterval(intervalId);
+        movesEl.textContent = '0';
+        timerEl.textContent = '0:00';
+        overlayEl.classList.remove('show');
+        shuffle();
+        renderBoard();
+      };
+
+      window.resetBest = function () {
+        localStorage.removeItem('puzzle15-best');
+        renderBest();
+      };
+
+      // --- Init ---
+      renderBest();
+      newGame();
+    })();
+  </script>
+</body>
+</html>
