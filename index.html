@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
   <title>15 Puzzle</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -233,11 +234,7 @@
       <div class="stat-value" id="moves">0</div>
     </div>
     <div class="stat">
-      <div class="stat-label">Time</div>
-      <div class="stat-value" id="timer">0:00</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Best</div>
+      <div class="stat-label">Best Moves</div>
       <div class="stat-value gold" id="best">—</div>
     </div>
   </div>
@@ -261,13 +258,10 @@
       // --- State ---
       let tiles = [];        // flat array, 0 = empty
       let moves = 0;
-      let timerStart = null;
-      let intervalId = null;
       let won = false;
 
       const boardEl   = document.getElementById('board');
       const movesEl   = document.getElementById('moves');
-      const timerEl   = document.getElementById('timer');
       const bestEl    = document.getElementById('best');
       const overlayEl = document.getElementById('overlay');
       const winInfoEl = document.getElementById('win-info');
@@ -277,26 +271,13 @@
         return JSON.parse(localStorage.getItem('puzzle15-best') || 'null');
       }
 
-      function setBest(time, moveCount) {
-        localStorage.setItem('puzzle15-best', JSON.stringify({ time, moves: moveCount }));
+      function setBest(moveCount) {
+        localStorage.setItem('puzzle15-best', JSON.stringify({ moves: moveCount }));
       }
 
       function renderBest() {
         const b = getBest();
-        bestEl.textContent = b ? formatTime(b.time) : '—';
-      }
-
-      // --- Formatting ---
-      function formatTime(seconds) {
-        const m = Math.floor(seconds / 60);
-        const s = seconds % 60;
-        return `${m}:${s.toString().padStart(2, '0')}`;
-      }
-
-      function updateTimer() {
-        if (timerStart === null || won) return;
-        const elapsed = Math.floor((Date.now() - timerStart) / 1000);
-        timerEl.textContent = formatTime(elapsed);
+        bestEl.textContent = b ? `${b.moves}` : '—';
       }
 
       // --- Board rendering ---
@@ -328,11 +309,6 @@
         moves++;
         movesEl.textContent = moves;
 
-        if (timerStart === null) {
-          timerStart = Date.now();
-          intervalId = setInterval(updateTimer, 250);
-        }
-
         renderBoard();
 
         if (checkWin()) handleWin();
@@ -354,15 +330,13 @@
 
       function handleWin() {
         won = true;
-        clearInterval(intervalId);
-        const elapsed = Math.floor((Date.now() - timerStart) / 1000);
-        winInfoEl.textContent = `${moves} moves in ${formatTime(elapsed)}`;
+        winInfoEl.textContent = `${moves} moves`;
 
         // Check personal best
         let isNewBest = false;
         const prev = getBest();
-        if (!prev || elapsed < prev.time) {
-          setBest(elapsed, moves);
+        if (!prev || moves < prev.moves) {
+          setBest(moves);
           isNewBest = true;
         }
         renderBest();
@@ -423,10 +397,7 @@
       window.newGame = function () {
         won = false;
         moves = 0;
-        timerStart = null;
-        clearInterval(intervalId);
         movesEl.textContent = '0';
-        timerEl.textContent = '0:00';
         overlayEl.classList.remove('show');
         shuffle();
         renderBoard();
