@@ -21,6 +21,9 @@
       --win-gold: #ffd166;
       --gap: 6px;
       --radius: 10px;
+      /* Slide animation. Want it slower/sooner? Tweak these two. */
+      --slide-duration: 0.35s;
+      --slide-easing: cubic-bezier(0.22, 1, 0.36, 1);
     }
 
     body {
@@ -96,10 +99,7 @@
     }
 
     .board {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      grid-template-rows: repeat(4, 1fr);
-      gap: var(--gap);
+      position: relative;
       width: 100%;
       height: 100%;
       padding: var(--gap);
@@ -108,7 +108,27 @@
       border-radius: calc(var(--radius) + 4px);
     }
 
+    /*
+      Persistent tile elements (one per number) positioned absolutely.
+      The outer .tile-slot owns the position + slide transition (transform: translate).
+      The inner .tile owns the press/hover feedback (transform: scale).
+      Keeping them separate means the two transforms never fight each other.
+    */
+    .tile-slot {
+      position: absolute;
+      left: 0;
+      top: 0;
+      transition: transform var(--slide-duration) var(--slide-easing);
+      will-change: transform;
+    }
+
+    .tile-slot.no-anim {
+      transition: none;
+    }
+
     .tile {
+      width: 100%;
+      height: 100%;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -118,23 +138,20 @@
       background: var(--tile-bg);
       color: var(--tile-number);
       cursor: pointer;
-      transition: transform 0.12s ease, background 0.12s ease, box-shadow 0.15s ease;
+      transition: transform 0.12s ease, background 0.12s ease;
       border: 1px solid transparent;
       -webkit-tap-highlight-color: transparent;
+      /* Ensures taps register reliably and disables the ~300ms double-tap-zoom delay. */
+      touch-action: manipulation;
     }
 
-    .tile:not(.empty):hover {
+    .tile:hover {
       background: var(--tile-hover);
       transform: scale(1.03);
     }
 
-    .tile:not(.empty):active {
-      transform: scale(0.97);
-    }
-
-    .tile.empty {
-      visibility: hidden;
-      pointer-events: none;
+    .tile:active {
+      transform: scale(0.95);
     }
 
     /* Win overlay */
@@ -255,8 +272,11 @@
 
   <script>
     (() => {
+      const SIZE = 4;
+      const TOTAL = SIZE * SIZE;
+
       // --- State ---
-      let tiles = [];        // flat array, 0 = empty
+      let tiles = [];        // flat array, 0 = empty; tiles[i] = number at position i
       let moves = 0;
       let won = false;
 
@@ -265,6 +285,9 @@
       const bestEl    = document.getElementById('best');
       const overlayEl = document.getElementById('overlay');
       const winInfoEl = document.getElementById('win-info');
+
+      // Persistent tile elements keyed by number (1..15). Never recreated during play.
+      const slotByNumber = {};
 
       // --- Persistence ---
       function getBest() {
@@ -280,49 +303,101 @@
         bestEl.textContent = b ? `${b.moves}` : '—';
       }
 
-      // --- Board rendering ---
-      function renderBoard() {
-        boardEl.innerHTML = '';
-        for (let i = 0; i < tiles.length; i++) {
-          const tile = document.createElement('div');
-          tile.className = 'tile' + (tiles[i] === 0 ? ' empty' : '');
-          tile.textContent = tiles[i] || '';
-          if (tiles[i] !== 0) {
-            tile.addEventListener('click', () => handleClick(i));
-            // Touch: prevent double-fire with click
-            tile.addEventListener('touchend', e => {
-              e.preventDefault();
-              handleClick(i);
-            });
-          }
-          boardEl.appendChild(tile);
+      // --- Geometry ---
+      // Tiles are absolutely positioned. We measure the board and compute each
+      // tile's translate() from its grid index, so layout stays responsive.
+      function getMetrics() {
+        const styles = getComputedStyle(boardEl);
+        const gap = parseFloat(styles.getPropertyValue('--gap')) || 6;
+        const padding = gap;                              // board padding == --gap
+        const clientW = boardEl.clientWidth;              // includes padding, excludes border
+        const contentW = clientW - 2 * padding;
+        const cell = (contentW - (SIZE - 1) * gap) / SIZE;
+        return { gap, padding, cell };
+      }
+
+      function cellToXY(index) {
+        const { gap, padding, cell } = getMetrics();
+        const row = Math.floor(index / SIZE);
+        const col = index % SIZE;
+        return {
+          x: padding + col * (cell + gap),
+          y: padding + row * (cell + gap),
+          cell
+        };
+      }
+
+      function positionTile(number, animate) {
+        const slot = slotByNumber[number];
+        if (!slot) return;
+        const idx = tiles.indexOf(number);
+        const { x, y, cell } = cellToXY(idx);
+
+        if (!animate) {
+          // Disable transition, apply, force a reflow, then re-enable so the
+          // jump is instantaneous (used on new game / resize) while real moves slide.
+          slot.classList.add('no-anim');
+        }
+
+        slot.style.width = cell + 'px';
+        slot.style.height = cell + 'px';
+        slot.style.transform = `translate(${x}px, ${y}px)`;
+
+        if (!animate) {
+          void slot.offsetWidth;             // flush layout
+          slot.classList.remove('no-anim');
         }
       }
 
-      function handleClick(index) {
-        if (won) return;
-        const emptyIdx = tiles.indexOf(0);
-        if (!isAdjacent(index, emptyIdx)) return;
+      function layoutAll(animate) {
+        for (let n = 1; n < TOTAL; n++) positionTile(n, animate);
+      }
 
-        // Swap
-        [tiles[index], tiles[emptyIdx]] = [tiles[emptyIdx], tiles[index]];
+      // --- Board build (once) ---
+      function buildBoard() {
+        boardEl.innerHTML = '';
+        for (let n = 1; n < TOTAL; n++) {
+          const slot = document.createElement('div');
+          slot.className = 'tile-slot';
+
+          const tile = document.createElement('div');
+          tile.className = 'tile';
+          tile.textContent = n;
+          // A single, unified input handler. No touchend/click duplication, and
+          // touch-action: manipulation on the tile makes the tap register reliably.
+          tile.addEventListener('click', () => handleClick(n));
+
+          slot.appendChild(tile);
+          boardEl.appendChild(slot);
+          slotByNumber[n] = slot;
+        }
+      }
+
+      function handleClick(number) {
+        if (won) return;
+        const idx = tiles.indexOf(number);
+        const emptyIdx = tiles.indexOf(0);
+        if (!isAdjacent(idx, emptyIdx)) return;
+
+        // Swap in the model, then animate just the one tile that moved.
+        [tiles[idx], tiles[emptyIdx]] = [tiles[emptyIdx], tiles[idx]];
         moves++;
         movesEl.textContent = moves;
 
-        renderBoard();
+        positionTile(number, true);
 
         if (checkWin()) handleWin();
       }
 
       function isAdjacent(a, b) {
-        const rowA = Math.floor(a / 4), colA = a % 4;
-        const rowB = Math.floor(b / 4), colB = b % 4;
+        const rowA = Math.floor(a / SIZE), colA = a % SIZE;
+        const rowB = Math.floor(b / SIZE), colB = b % SIZE;
         return (Math.abs(rowA - rowB) + Math.abs(colA - colB)) === 1;
       }
 
       // --- Win check ---
       function checkWin() {
-        for (let i = 0; i < tiles.length - 1; i++) {
+        for (let i = 0; i < TOTAL - 1; i++) {
           if (tiles[i] !== i + 1) return false;
         }
         return true;
@@ -332,7 +407,6 @@
         won = true;
         winInfoEl.textContent = `${moves} moves`;
 
-        // Check personal best
         let isNewBest = false;
         const prev = getBest();
         if (!prev || moves < prev.moves) {
@@ -345,14 +419,29 @@
           setTimeout(() => bestEl.classList.remove('new-best'), 1200);
         }
 
-        overlayEl.classList.add('show');
+        // Let the final tile slide home before the overlay fades in.
+        setTimeout(() => overlayEl.classList.add('show'), 260);
       }
 
       // --- Shuffling ---
+      function getNeighbors(idx) {
+        const row = Math.floor(idx / SIZE);
+        const col = idx % SIZE;
+        const n = [];
+        if (row > 0) n.push(idx - SIZE);
+        if (row < SIZE - 1) n.push(idx + SIZE);
+        if (col > 0) n.push(idx - 1);
+        if (col < SIZE - 1) n.push(idx + 1);
+        return n;
+      }
+
       function shuffle() {
         // Start solved, then perform random valid moves to guarantee solvability.
-        tiles = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0];
-        let emptyIdx = 15;
+        tiles = [];
+        for (let i = 1; i < TOTAL; i++) tiles.push(i);
+        tiles.push(0);
+
+        let emptyIdx = TOTAL - 1;
         let lastDir = -1;
 
         // More moves for a better shuffle on mobile
@@ -378,19 +467,15 @@
         }
       }
 
-      function getNeighbors(idx) {
-        const row = Math.floor(idx / 4);
-        const col = idx % 4;
-        const n = [];
-        if (row > 0) n.push(idx - 4);
-        if (row < 3) n.push(idx + 4);
-        if (col > 0) n.push(idx - 1);
-        if (col < 3) n.push(idx + 1);
-        return n;
-      }
-
       function isMobile() {
         return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      }
+
+      // --- Resize: keep tiles aligned without animating the reflow ---
+      let resizeRaf = null;
+      function onResize() {
+        if (resizeRaf) cancelAnimationFrame(resizeRaf);
+        resizeRaf = requestAnimationFrame(() => layoutAll(false));
       }
 
       // --- New game ---
@@ -400,7 +485,7 @@
         movesEl.textContent = '0';
         overlayEl.classList.remove('show');
         shuffle();
-        renderBoard();
+        layoutAll(false);
       };
 
       window.resetBest = function () {
@@ -409,8 +494,10 @@
       };
 
       // --- Init ---
+      buildBoard();
       renderBest();
       newGame();
+      window.addEventListener('resize', onResize);
     })();
   </script>
 </body>
