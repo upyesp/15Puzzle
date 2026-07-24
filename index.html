@@ -3,7 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0f1117">
   <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="manifest" href="./manifest.json">
+  <!-- iOS / Safari PWA support -->
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="15 Puzzle">
   <title>15 Puzzle</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -498,6 +505,15 @@
       renderBest();
       newGame();
       window.addEventListener('resize', onResize);
+
+      // --- PWA: register the service worker for offline support ---
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./service-worker.js').catch(() => {
+            /* registration is best-effort; the game still works without it */
+          });
+        });
+      }
     })();
   </script>
 </body>
