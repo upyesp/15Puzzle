@@ -5,7 +5,7 @@
  * caches are evicated on activation.
  */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = 'puzzle15-' + CACHE_VERSION;
 
 // The complete app shell -- everything needed to run fully offline.
