@@ -31,6 +31,8 @@
       /* Slide animation. Want it slower/sooner? Tweak these two. */
       --slide-duration: 0.35s;
       --slide-easing: cubic-bezier(0.22, 1, 0.36, 1);
+      /* The auto-solve plays moves back-to-back with a snappier slide. */
+      --solve-duration: 0.18s;
     }
 
     body {
@@ -133,6 +135,11 @@
       transition: none;
     }
 
+    /* While the solver is playing the board, slides use the faster solve pace. */
+    .board.solving .tile-slot {
+      transition-duration: var(--solve-duration);
+    }
+
     .tile {
       width: 100%;
       height: 100%;
@@ -221,6 +228,7 @@
     }
 
     button:active { transform: scale(0.97); }
+    button:disabled { opacity: 0.5; cursor: default; }
 
     .btn-primary {
       background: var(--accent);
@@ -274,6 +282,7 @@
 
   <div class="btn-row">
     <button class="btn-primary" onclick="newGame()">New Game</button>
+    <button class="btn-secondary" id="solve-btn" onclick="solveGame()">Solve</button>
     <button class="btn-secondary" onclick="resetBest()">Reset Best</button>
   </div>
 
@@ -286,12 +295,15 @@
       let tiles = [];        // flat array, 0 = empty; tiles[i] = number at position i
       let moves = 0;
       let won = false;
+      let solving = false;   // the auto-solve animation is running
+      let solveTimer = null;
 
       const boardEl   = document.getElementById('board');
       const movesEl   = document.getElementById('moves');
       const bestEl    = document.getElementById('best');
       const overlayEl = document.getElementById('overlay');
       const winInfoEl = document.getElementById('win-info');
+      const solveBtn  = document.getElementById('solve-btn');
 
       // Persistent tile elements keyed by number (1..15). Never recreated during play.
       const slotByNumber = {};
@@ -381,7 +393,7 @@
       }
 
       function handleClick(number) {
-        if (won) return;
+        if (won || solving) return;
         const idx = tiles.indexOf(number);
         const emptyIdx = tiles.indexOf(0);
         if (!isAdjacent(idx, emptyIdx)) return;
@@ -478,6 +490,186 @@
         return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
       }
 
+      // --- Solver (weighted IDA*: walking distance + Manhattan/linear conflicts) ---
+      // Computes a near-optimal sequence of slides from any position the game
+      // can produce. Optimal (unweighted) IDA* needs tens of seconds in JS on
+      // typical shuffles (~45-55 optimal moves); weighting f by W keeps the
+      // returned solution within 2x of optimal (usually just a few moves
+      // longer) while the walking-distance table + weight prune the search
+      // down to milliseconds.
+      const SOLVE_WEIGHT = 2;
+
+      const GOAL_ROW = new Array(TOTAL);
+      const GOAL_COL = new Array(TOTAL);
+      for (let t = 1; t < TOTAL; t++) {
+        GOAL_ROW[t] = Math.floor((t - 1) / SIZE);
+        GOAL_COL[t] = (t - 1) % SIZE;
+      }
+
+      const FOUND = -1;
+
+      // Base-5 digits pack a 4x4 count matrix + blank axis position into a number.
+      const P5 = [1, 5, 25, 125, 625, 3125, 15625, 78125, 390625, 1953125,
+                  9765625, 48828125, 244140625, 1220703125, 6103515625,
+                  30517578125, 152587890625];
+
+      // Blank-move neighborhoods, precomputed once for the search hot path.
+      const NBRS = [];
+      for (let i = 0; i < TOTAL; i++) NBRS.push(getNeighbors(i));
+
+      // Longest strictly increasing subsequence; lists here have ≤ 4 entries.
+      function lisLength(seq) {
+        const dp = [1, 1, 1, 1];
+        let best = 0;
+        for (let i = 0; i < seq.length; i++) {
+          for (let j = 0; j < i; j++) {
+            if (seq[j] < seq[i] && dp[j] + 1 > dp[i]) dp[i] = dp[j] + 1;
+          }
+          if (dp[i] > best) best = dp[i];
+        }
+        return best;
+      }
+
+      // Manhattan distance plus linear conflicts (tiles sitting in their goal
+      // row/column but mutually reversed need extra detours). The LIS-based
+      // conflict count keeps this component admissible.
+      function mdAndConflicts(pos) {
+        let h = 0;
+        for (let i = 0; i < TOTAL; i++) {
+          const t = pos[i];
+          if (t === 0) continue;
+          h += Math.abs(Math.floor(i / SIZE) - GOAL_ROW[t]) + Math.abs((i % SIZE) - GOAL_COL[t]);
+        }
+        for (let r = 0; r < SIZE; r++) {
+          const goals = [];
+          for (let i = r * SIZE; i < (r + 1) * SIZE; i++) {
+            const t = pos[i];
+            if (t !== 0 && GOAL_ROW[t] === r) goals.push(GOAL_COL[t]);
+          }
+          if (goals.length > 1) h += 2 * (goals.length - lisLength(goals));
+        }
+        for (let c = 0; c < SIZE; c++) {
+          const goals = [];
+          for (let i = c; i < TOTAL; i += SIZE) {
+            const t = pos[i];
+            if (t !== 0 && GOAL_COL[t] === c) goals.push(GOAL_ROW[t]);
+          }
+          if (goals.length > 1) h += 2 * (goals.length - lisLength(goals));
+        }
+        return h;
+      }
+
+      // Walking distance: a BFS table over row-membership states, where the
+      // blank counts as a tile that belongs in the last row. dist[state] is
+      // the minimum number of vertical blank moves needed to reach the goal
+      // arrangement. One table serves both axes by symmetry, so
+      //   walkDistance = vertical + horizontal
+      // is admissible (every move is exactly one of the two kinds), and it
+      // prunes far harder than Manhattan distance on scrambled boards.
+      const wdTable = (() => {
+        const start = new Uint8Array(17);
+        for (let i = 0; i < SIZE; i++) start[i * SIZE + i] = SIZE;
+        start[16] = SIZE - 1;                    // blank's goal: last row
+        const key = st => {
+          let k = 0;
+          for (let i = 0; i < 17; i++) k += st[i] * P5[i];
+          return k;
+        };
+        const dist = new Map();
+        dist.set(key(start), 0);
+        let frontier = [start];
+        let d = 0;
+        while (frontier.length) {
+          d++;
+          const next = [];
+          for (const st of frontier) {
+            const b = st[16];
+            for (let nb = b - 1; nb <= b + 1; nb += 2) {
+              if (nb < 0 || nb >= SIZE) continue;
+              for (let g = 0; g < SIZE; g++) {   // move a goal-row-g tile up/down
+                if (st[nb * SIZE + g] === 0) continue;
+                const ns = st.slice();
+                ns[nb * SIZE + g]--;
+                ns[b * SIZE + g]++;
+                ns[16] = nb;
+                const k = key(ns);
+                if (!dist.has(k)) { dist.set(k, d); next.push(ns); }
+              }
+            }
+          }
+          frontier = next;
+        }
+        return dist;
+      })();
+
+      function walkDistance(pos) {
+        const rows = new Uint8Array(17);
+        const cols = new Uint8Array(17);
+        let blank = 0;
+        for (let i = 0; i < TOTAL; i++) {
+          const t = pos[i];
+          if (t === 0) { blank = i; continue; }
+          rows[Math.floor(i / SIZE) * SIZE + GOAL_ROW[t]]++;
+          cols[(i % SIZE) * SIZE + GOAL_COL[t]]++;
+        }
+        rows[16] = Math.floor(blank / SIZE);
+        cols[16] = blank % SIZE;
+        let kv = 0;
+        for (let i = 0; i < 17; i++) kv += rows[i] * P5[i];
+        let kh = 0;
+        for (let i = 0; i < 17; i++) kh += cols[i] * P5[i];
+        // The ?? fallback is unreachable for real boards; it just keeps the
+        // heuristic numeric if a lookup ever missed.
+        return (wdTable.get(kv) ?? 0) + (wdTable.get(kh) ?? 0);
+      }
+
+      function heuristic(pos) {
+        const md = mdAndConflicts(pos);
+        const wd = walkDistance(pos);
+        return md > wd ? md : wd;
+      }
+
+      // Returns a near-optimal list of tile numbers to slide into the blank,
+      // in order (length ≤ SOLVE_WEIGHT × optimal), or [] when already
+      // solved. `startPos` is not mutated.
+      function computeSolution(startPos) {
+        const pos = startPos.slice();
+        const path = [];
+        const h0 = heuristic(pos);
+        if (h0 === 0) return [];
+
+        function search(g, bound, blank, prevBlank) {
+          const h = heuristic(pos);
+          if (h === 0) return FOUND;
+          const f = g + SOLVE_WEIGHT * h;
+          if (f > bound) return f;
+
+          let min = Infinity;
+          for (const nb of NBRS[blank]) {
+            if (nb === prevBlank) continue;
+            const tile = pos[nb];
+            pos[blank] = tile;
+            pos[nb] = 0;
+            path.push(tile);
+            const t = search(g + 1, bound, nb, blank);
+            if (t === FOUND) return FOUND;
+            if (t < min) min = t;
+            path.pop();
+            pos[nb] = tile;
+            pos[blank] = 0;
+          }
+          return min;
+        }
+
+        let bound = SOLVE_WEIGHT * h0;
+        while (true) {
+          const t = search(0, bound, pos.indexOf(0), -1);
+          if (t === FOUND) return path.slice();
+          if (t === Infinity) return null; // unreachable: game positions are always solvable
+          bound = t;
+        }
+      }
+
       // --- Resize: keep tiles aligned without animating the reflow ---
       let resizeRaf = null;
       function onResize() {
@@ -485,8 +677,64 @@
         resizeRaf = requestAnimationFrame(() => layoutAll(false));
       }
 
+      // --- Solve button ---
+      // Plays the board out from its current position, one animated slide per
+      // step. The attempt is voided: on completion the move counter resets to
+      // zero and the best record is deliberately never touched.
+      const SOLVE_STEP_MS = 200;
+
+      function cancelSolve() {
+        if (!solving) return;
+        clearTimeout(solveTimer);
+        solving = false;
+        solveTimer = null;
+        boardEl.classList.remove('solving');
+        boardEl.style.removeProperty('--solve-duration');
+        solveBtn.disabled = false;
+        solveBtn.textContent = 'Solve';
+      }
+
+      window.solveGame = function () {
+        if (won || solving) return;
+        solving = true;
+        boardEl.classList.add('solving');
+        solveBtn.disabled = true;
+        solveBtn.textContent = 'Solving…';
+
+        // Defer the search a tick so the button state paints first.
+        setTimeout(() => {
+          if (!solving) return;              // cancelled meanwhile (new game)
+          const solution = computeSolution(tiles);
+          if (solution === null || solution.length === 0) { cancelSolve(); return; }
+
+          // Long solutions step a little faster so the show stays ~12s max;
+          // each slide still finishes before the next step begins.
+          const stepMs = Math.max(120, Math.min(SOLVE_STEP_MS, Math.round(12000 / solution.length)));
+          boardEl.style.setProperty('--solve-duration', Math.round(stepMs * 0.9) + 'ms');
+
+          let i = 0;
+          const step = () => {
+            const number = solution[i++];
+            const idx = tiles.indexOf(number);
+            const emptyIdx = tiles.indexOf(0);
+            [tiles[idx], tiles[emptyIdx]] = [tiles[emptyIdx], tiles[idx]];
+            positionTile(number, true);
+
+            if (i < solution.length) {
+              solveTimer = setTimeout(step, stepMs);
+            } else {
+              cancelSolve();
+              moves = 0;
+              movesEl.textContent = '0';
+            }
+          };
+          step();
+        }, 30);
+      };
+
       // --- New game ---
       window.newGame = function () {
+        cancelSolve();
         won = false;
         moves = 0;
         movesEl.textContent = '0';

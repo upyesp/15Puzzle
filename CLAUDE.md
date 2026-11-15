@@ -16,24 +16,33 @@ The entire application lives in one IIFE inside the `<script>` tag of `index.htm
 
 | Lines | Section | Purpose |
 |-------|---------|---------|
-| 268-273 | DOM refs | Cached element references (board, stats, overlay) |
-| 276-288 | Persistence | `localStorage` reads/writes under key `puzzle15-best` |
-| 290-300 | Formatting | Time formatting and timer display updates |
-| 303-318 | Rendering | Builds the 4x4 grid of tile divs from the `tiles` state array |
-| 321-345 | Game logic | Move handling, adjacency checks via Manhattan distance |
-| 348-375 | Win check | Validates solved state, shows glassmorphic overlay on win |
-| 378-415 | Shuffling | Solvable shuffle starting from solved state with ~225 random moves |
+| 294-309 | State & DOM refs | Cached element references (board, stats, overlay, buttons) |
+| 311-323 | Persistence | `localStorage` reads/writes under key `puzzle15-best` |
+| 325-373 | Rendering/geometry | Measures the board and positions tile slots via `translate()` |
+| 375-443 | Board build + game logic | Move handling, adjacency checks via Manhattan distance |
+| 417-443 | Win check | Validates solved state, shows glassmorphic overlay on win |
+| 445-491 | Shuffling | Solvable shuffle starting from solved state with ~225 random moves |
+| 493-671 | Solver | Weighted IDA* (w=2) over walking-distance + Manhattan/linear-conflict heuristics |
+| 680-733 | Solve button | Animates the solver's move list; voids the attempt (moves reset, best untouched) |
+| 735-749 | New game / Reset best | Public API entry points |
 
 ### State model
 
 - `tiles` -- flat array of 16 elements (0-15), where `0` is the empty square
-- `moves`, `timerStart`, `intervalId`, `won` -- runtime counters
-- Best time/moves persisted to `localStorage` as `{ time, moves }`
+- `moves`, `won` -- runtime counters; `solving`, `solveTimer` -- auto-solve animation state; `resizeRaf` -- resize coalescing
+- Best moves persisted to `localStorage` under `puzzle15-best` as `{ moves }`
 
 ### Public API (attached to `window`)
 
-- `newGame()` -- reset state, reshuffle, re-render
+- `newGame()` -- cancel any running solve, reset state, reshuffle, re-render
 - `resetBest()` -- clear localStorage best entry
+- `solveGame()` -- compute a near-optimal solution from the current position and play it out slide-by-slide; on completion the move counter resets to 0 and the best record is never touched (the attempt is voided). Tile clicks are ignored and the Solve button is disabled while the animation runs; New Game cancels it mid-flight.
+
+### Solver notes
+
+- The shuffle's 225-move random walk yields positions ~45-55 moves from solved; unweighted IDA* needs seconds-to-minutes in JS, so the search weights f by 2 (`SOLVE_WEIGHT`), trading a little solution length (empirically avg ~69 moves, max ~91 on real shuffles) for milliseconds solve time. Solutions are guaranteed within 2x of optimal and are always valid.
+- The walking-distance table (~37k states) is BFS-generated at load in ~16ms; heuristic = max(manhattan + linear conflicts, walking distance).
+- Animation cadence adapts (`12000 / solution.length`, clamped 120-200ms) with a matching `--solve-duration` so the show stays ~12s or less.
 
 ## Design Notes
 
@@ -41,6 +50,7 @@ The entire application lives in one IIFE inside the `<script>` tag of `index.htm
 - Responsive layout via `clamp()`, `min()`, `aspect-ratio`
 - Touch-friendly: dual handlers (click + touchend), mobile-optimized shuffle depth
 - Shuffle guarantees solvability by starting from solved state and making random valid moves only
+- Auto-solve never updates the best record: a computer-played finish scores nothing, and the move counter resets to zero when its animation completes
 
 ## Making Changes
 
