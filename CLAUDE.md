@@ -18,18 +18,19 @@ The entire application lives in one IIFE inside the `<script>` tag of `index.htm
 |-------|---------|---------|
 | 294-309 | State & DOM refs | Cached element references (board, stats, overlay, buttons) |
 | 311-323 | Persistence | `localStorage` reads/writes under key `puzzle15-best` |
-| 325-373 | Rendering/geometry | Measures the board and positions tile slots via `translate()` |
-| 375-443 | Board build + game logic | Move handling, adjacency checks via Manhattan distance |
-| 417-443 | Win check | Validates solved state, shows glassmorphic overlay on win |
-| 445-491 | Shuffling | Solvable shuffle starting from solved state with ~225 random moves |
-| 493-671 | Solver | Weighted IDA* (w=2) over walking-distance + Manhattan/linear-conflict heuristics |
-| 680-733 | Solve button | Animates the solver's move list; voids the attempt (moves reset, best untouched) |
-| 735-749 | New game / Reset best | Public API entry points |
+| 325-365 | Sound | Web Audio synthesized "shh" on every animated slide (no assets) |
+| 367-418 | Rendering/geometry | Measures the board and positions tile slots via `translate()` |
+| 420-461 | Board build + game logic | Move handling, adjacency checks via Manhattan distance |
+| 463-489 | Win check | Validates solved state, shows glassmorphic overlay on win |
+| 491-537 | Shuffling | Solvable shuffle starting from solved state with ~225 random moves |
+| 539-717 | Solver | Weighted IDA* (w=2) over walking-distance + Manhattan/linear-conflict heuristics |
+| 726-780 | Solve button | Animates the solver's move list; voids the attempt (moves reset, best untouched) |
+| 782-796 | New game / Reset best | Public API entry points |
 
 ### State model
 
 - `tiles` -- flat array of 16 elements (0-15), where `0` is the empty square
-- `moves`, `won` -- runtime counters; `solving`, `solveTimer` -- auto-solve animation state; `resizeRaf` -- resize coalescing
+- `moves`, `won` -- runtime counters; `solving`, `solveTimer` -- auto-solve animation state; `resizeRaf` -- resize coalescing; `audioCtx`, `noiseBuffer` -- lazy Web Audio state
 - Best moves persisted to `localStorage` under `puzzle15-best` as `{ moves }`
 
 ### Public API (attached to `window`)
@@ -51,6 +52,7 @@ The entire application lives in one IIFE inside the `<script>` tag of `index.htm
 - Touch-friendly: dual handlers (click + touchend), mobile-optimized shuffle depth
 - Shuffle guarantees solvability by starting from solved state and making random valid moves only
 - Auto-solve never updates the best record: a computer-played finish scores nothing, and the move counter resets to zero when its animation completes
+- Slide sound: a synthesized filtered-noise "shh" (Web Audio, no audio files) plays inside `positionTile` whenever a tile animates, so human moves and auto-solve sound alike. The AudioContext is unlocked on the first user gesture (`ensureAudio` in `handleClick`/`solveGame`); audio failures are silent no-ops and never affect gameplay
 
 ## Making Changes
 

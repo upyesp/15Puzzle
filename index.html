@@ -322,6 +322,48 @@
         bestEl.textContent = b ? `${b.moves}` : '—';
       }
 
+      // --- Sound: brief filtered-noise "shh" on every animated slide ---
+      // Synthesized with the Web Audio API (no assets, works offline). The
+      // context is created lazily on the first user gesture -- browsers keep
+      // audio muted until then -- and any failure is a silent no-op.
+      let audioCtx = null;
+      let noiseBuffer = null;
+
+      function ensureAudio() {
+        if (!audioCtx) {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return;
+          audioCtx = new AC();
+          // Half a second of white noise, reused for every slide.
+          noiseBuffer = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate * 0.5), audioCtx.sampleRate);
+          const data = noiseBuffer.getChannelData(0);
+          for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+        }
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+      }
+
+      function playSlideSound() {
+        if (!audioCtx || audioCtx.state !== 'running' || !noiseBuffer) return;
+        const t = audioCtx.currentTime;
+        const src = audioCtx.createBufferSource();
+        src.buffer = noiseBuffer;
+        // A bandpass around 2.5-3.5kHz reads as an airy "shh" rather than
+        // static; a little jitter keeps repeats from sounding mechanical.
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 2500 + Math.random() * 1000;
+        filter.Q.value = 0.8;
+        const gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.16, t + 0.01);    // fast attack
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);  // decay inside the slide
+        src.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+        src.start(t);
+        src.stop(t + 0.2);
+      }
+
       // --- Geometry ---
       // Tiles are absolutely positioned. We measure the board and compute each
       // tile's translate() from its grid index, so layout stays responsive.
@@ -349,6 +391,9 @@
       function positionTile(number, animate) {
         const slot = slotByNumber[number];
         if (!slot) return;
+        // Every animated slide gets its "shh" -- human moves and auto-solve
+        // alike; instant re-layouts stay silent.
+        if (animate) playSlideSound();
         const idx = tiles.indexOf(number);
         const { x, y, cell } = cellToXY(idx);
 
@@ -394,6 +439,7 @@
 
       function handleClick(number) {
         if (won || solving) return;
+        ensureAudio();          // first interaction unlocks the audio context
         const idx = tiles.indexOf(number);
         const emptyIdx = tiles.indexOf(0);
         if (!isAdjacent(idx, emptyIdx)) return;
@@ -696,6 +742,7 @@
 
       window.solveGame = function () {
         if (won || solving) return;
+        ensureAudio();          // unlock on this gesture so the later steps can play
         solving = true;
         boardEl.classList.add('solving');
         solveBtn.disabled = true;
