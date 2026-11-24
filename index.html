@@ -322,7 +322,7 @@
         bestEl.textContent = b ? `${b.moves}` : '—';
       }
 
-      // --- Sound: brief filtered-noise "shh" on every animated slide ---
+      // --- Sound: a brief knock when a tile reaches its destination ---
       // Synthesized with the Web Audio API (no assets, works offline). The
       // context is created lazily on the first user gesture -- browsers keep
       // audio muted until then -- and any failure is a silent no-op.
@@ -355,13 +355,22 @@
         filter.Q.value = 0.8;
         const gain = audioCtx.createGain();
         gain.gain.setValueAtTime(0.0001, t);
-        gain.gain.exponentialRampToValueAtTime(0.16, t + 0.01);    // fast attack
-        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);  // decay inside the slide
+        gain.gain.exponentialRampToValueAtTime(0.16, t + 0.005);   // fast attack
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.065); // brief knock
         src.connect(filter);
         filter.connect(gain);
         gain.connect(audioCtx.destination);
         src.start(t);
-        src.stop(t + 0.2);
+        src.stop(t + 0.1);
+      }
+
+      // The knock lands when the tile ARRIVES, not when it departs, so it
+      // reads as the tile hitting its neighbor or the wall. The delay comes
+      // from the slot's actual transition duration, which the solve animation
+      // shortens dynamically (normal play: 350ms; solve: ~110-180ms).
+      function playSlideArrivalSound(slot) {
+        const seconds = parseFloat(getComputedStyle(slot).transitionDuration) || 0;
+        setTimeout(playSlideSound, Math.max(0, seconds * 1000));
       }
 
       // --- Geometry ---
@@ -391,9 +400,9 @@
       function positionTile(number, animate) {
         const slot = slotByNumber[number];
         if (!slot) return;
-        // Every animated slide gets its "shh" -- human moves and auto-solve
-        // alike; instant re-layouts stay silent.
-        if (animate) playSlideSound();
+        // Every animated slide "knocks" when the tile arrives -- human moves
+        // and auto-solve alike; instant re-layouts stay silent.
+        if (animate) playSlideArrivalSound(slot);
         const idx = tiles.indexOf(number);
         const { x, y, cell } = cellToXY(idx);
 
