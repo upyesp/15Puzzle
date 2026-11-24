@@ -322,7 +322,7 @@
         bestEl.textContent = b ? `${b.moves}` : '—';
       }
 
-      // --- Sound: a brief knock when a tile reaches its destination ---
+      // --- Sound: a brief knock as each tile starts to slide ---
       // Synthesized with the Web Audio API (no assets, works offline). The
       // context is created lazily on the first user gesture -- browsers keep
       // audio muted until then -- and any failure is a silent no-op.
@@ -364,15 +364,6 @@
         src.stop(t + 0.1);
       }
 
-      // The knock lands when the tile ARRIVES, not when it departs, so it
-      // reads as the tile hitting its neighbor or the wall. The delay comes
-      // from the slot's actual transition duration, which the solve animation
-      // shortens dynamically (normal play: 350ms; solve: ~110-180ms).
-      function playSlideArrivalSound(slot) {
-        const seconds = parseFloat(getComputedStyle(slot).transitionDuration) || 0;
-        setTimeout(playSlideSound, Math.max(0, seconds * 1000));
-      }
-
       // --- Geometry ---
       // Tiles are absolutely positioned. We measure the board and compute each
       // tile's translate() from its grid index, so layout stays responsive.
@@ -400,9 +391,11 @@
       function positionTile(number, animate) {
         const slot = slotByNumber[number];
         if (!slot) return;
-        // Every animated slide "knocks" when the tile arrives -- human moves
-        // and auto-solve alike; instant re-layouts stay silent.
-        if (animate) playSlideArrivalSound(slot);
+        // Every animated slide knocks as it starts -- human moves and
+        // auto-solve alike; instant re-layouts stay silent. (An arrival-
+        // delayed knock was tried and rejected: it read as device lag,
+        // so the sound fires at slide start with the short envelope.)
+        if (animate) playSlideSound();
         const idx = tiles.indexOf(number);
         const { x, y, cell } = cellToXY(idx);
 
