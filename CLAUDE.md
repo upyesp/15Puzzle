@@ -46,6 +46,10 @@ The entire application lives in one IIFE inside the `<script>` tag of `index.htm
 - The walking-distance table (~37k states) is BFS-generated at load in ~16ms; heuristic = max(manhattan + linear conflicts, walking distance).
 - Animation cadence adapts (`12000 / solution.length`, clamped 120-200ms) with a matching `--solve-duration` so the show stays ~12s or less.
 
+## PWA assets
+
+- Icons are designed as SVG and rasterized to PNG with `rsvg-convert` (Homebrew librsvg; ImageMagick's own SVG renderer mishandles text, qlmanage adds an opaque background). The "15" fills ~94% of the tile width. Glyph ink must be measured after render (`magick out.png txt:` + bright-pixel bbox) because the "1" glyph's left flag biases the ink box left of the text-anchor point; the SVG `x`/`y` values are empirically compensated so the *ink* centers (favicon fs=51 in a 64 viewBox at x=31.2/y=30.3; maskable fs=320, x=249.7/y=245.5, glyph inside the 80% safe-zone circle; apple-touch fs=150, x=88.3/y=85 on a full-bleed tile since iOS applies its own corner mask). `icon-maskable-512.png` must never equal `icon-512.png` -- maskable needs the full-bleed background or launchers clip it.
+
 ## Design Notes
 
 - Dark theme using CSS custom properties (`--bg`, `--surface`, `--accent`, `--win-gold`)
