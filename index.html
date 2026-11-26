@@ -209,6 +209,30 @@
       font-size: 0.95rem;
     }
 
+    /* Sound toggle (fixed top-right of the screen) */
+    .sound-toggle {
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      z-index: 20;
+      flex: none;
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      color: var(--muted);
+    }
+    .sound-toggle:hover { background: var(--tile-hover); color: var(--text); }
+    .sound-toggle svg { width: 20px; height: 20px; display: block; }
+    .sound-toggle .icon-off { display: none; }
+    .sound-toggle.muted .icon-on { display: none; }
+    .sound-toggle.muted .icon-off { display: block; }
+
     /* Buttons */
     .btn-row {
       display: flex;
@@ -257,6 +281,19 @@
   </style>
 </head>
 <body>
+  <button id="sound-btn" class="sound-toggle" onclick="toggleSound()" aria-pressed="true" aria-label="Sound on" title="Toggle sound">
+    <svg class="icon-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"></polygon>
+      <path d="M15.5 8.5a5 5 0 0 1 0 7"></path>
+      <path d="M18.5 5.5a9 9 0 0 1 0 13"></path>
+    </svg>
+    <svg class="icon-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"></polygon>
+      <line x1="16" y1="9" x2="22" y2="15"></line>
+      <line x1="22" y1="9" x2="16" y2="15"></line>
+    </svg>
+  </button>
+
   <h1>15 Puzzle</h1>
   <p class="subtitle">Slide tiles to order them 1–15</p>
 
@@ -304,6 +341,7 @@
       const overlayEl = document.getElementById('overlay');
       const winInfoEl = document.getElementById('win-info');
       const solveBtn  = document.getElementById('solve-btn');
+      const soundBtn  = document.getElementById('sound-btn');
 
       // Persistent tile elements keyed by number (1..15). Never recreated during play.
       const slotByNumber = {};
@@ -328,6 +366,8 @@
       // audio muted until then -- and any failure is a silent no-op.
       let audioCtx = null;
       let noiseBuffer = null;
+      // Sound preference persists across visits; defaults to on.
+      let soundOn = localStorage.getItem('puzzle15-sound') !== 'off';
 
       function ensureAudio() {
         if (!audioCtx) {
@@ -343,7 +383,7 @@
       }
 
       function playSlideSound() {
-        if (!audioCtx || audioCtx.state !== 'running' || !noiseBuffer) return;
+        if (!soundOn || !audioCtx || audioCtx.state !== 'running' || !noiseBuffer) return;
         const t = audioCtx.currentTime;
         const src = audioCtx.createBufferSource();
         src.buffer = noiseBuffer;
@@ -363,6 +403,19 @@
         src.start(t);
         src.stop(t + 0.1);
       }
+
+      function applySoundButton() {
+        soundBtn.classList.toggle('muted', !soundOn);
+        soundBtn.setAttribute('aria-pressed', String(soundOn));
+        soundBtn.setAttribute('aria-label', soundOn ? 'Sound on' : 'Sound off');
+      }
+
+      window.toggleSound = function () {
+        soundOn = !soundOn;
+        localStorage.setItem('puzzle15-sound', soundOn ? 'on' : 'off');
+        if (soundOn) ensureAudio();   // this click is the gesture that unlocks audio
+        applySoundButton();
+      };
 
       // --- Geometry ---
       // Tiles are absolutely positioned. We measure the board and compute each
@@ -470,8 +523,20 @@
         return true;
       }
 
-      function handleWin() {
+      // A solver-played finish (fromSolver) completes the puzzle -- overlay
+      // and all -- but deliberately never touches the best record: the best
+      // score represents the player's own achievement.
+      function handleWin(fromSolver) {
         won = true;
+
+        // Let the final tile slide home before the overlay fades in.
+        setTimeout(() => overlayEl.classList.add('show'), 260);
+
+        if (fromSolver) {
+          winInfoEl.textContent = 'Auto-solved';
+          return;
+        }
+
         winInfoEl.textContent = `${moves} moves`;
 
         let isNewBest = false;
@@ -485,9 +550,6 @@
           bestEl.classList.add('new-best');
           setTimeout(() => bestEl.classList.remove('new-best'), 1200);
         }
-
-        // Let the final tile slide home before the overlay fades in.
-        setTimeout(() => overlayEl.classList.add('show'), 260);
       }
 
       // --- Shuffling ---
@@ -775,6 +837,7 @@
               cancelSolve();
               moves = 0;
               movesEl.textContent = '0';
+              handleWin(true);
             }
           };
           step();
@@ -800,6 +863,7 @@
       // --- Init ---
       buildBoard();
       renderBest();
+      applySoundButton();
       newGame();
       window.addEventListener('resize', onResize);
 

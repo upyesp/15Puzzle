@@ -16,28 +16,29 @@ The entire application lives in one IIFE inside the `<script>` tag of `index.htm
 
 | Lines | Section | Purpose |
 |-------|---------|---------|
-| 294-309 | State & DOM refs | Cached element references (board, stats, overlay, buttons) |
-| 311-323 | Persistence | `localStorage` reads/writes under key `puzzle15-best` |
-| 325-365 | Sound | Web Audio synthesized knock at the start of every animated slide (no assets) |
-| 367-420 | Rendering/geometry | Measures the board and positions tile slots via `translate()` |
-| 422-463 | Board build + game logic | Move handling, adjacency checks via Manhattan distance |
-| 465-491 | Win check | Validates solved state, shows glassmorphic overlay on win |
-| 493-539 | Shuffling | Solvable shuffle starting from solved state with ~225 random moves |
-| 541-726 | Solver | Weighted IDA* (w=2) over walking-distance + Manhattan/linear-conflict heuristics |
-| 728-782 | Solve button | Animates the solver's move list; voids the attempt (moves reset, best untouched) |
-| 784-798 | New game / Reset best | Public API entry points |
+| 331-347 | State & DOM refs | Cached element references (board, stats, overlay, buttons) |
+| 349-361 | Persistence | `localStorage` reads/writes under key `puzzle15-best` |
+| 363-418 | Sound | Web Audio synthesized knock at the start of every animated slide, plus the persisted sound toggle (no assets) |
+| 420-473 | Rendering/geometry | Measures the board and positions tile slots via `translate()` |
+| 475-516 | Board build + game logic | Move handling, adjacency checks via Manhattan distance |
+| 518-553 | Win check | `handleWin(fromSolver)`: human wins record best + moves; solver finishes mark complete only |
+| 555-601 | Shuffling | Solvable shuffle starting from solved state with ~225 random moves |
+| 603-788 | Solver | Weighted IDA* (w=2) over walking-distance + Manhattan/linear-conflict heuristics |
+| 790-845 | Solve button | Animates the solver's move list; completes the puzzle (overlay, moves reset, best untouched) |
+| 847-862 | New game / Reset best | Public API entry points |
 
 ### State model
 
 - `tiles` -- flat array of 16 elements (0-15), where `0` is the empty square
-- `moves`, `won` -- runtime counters; `solving`, `solveTimer` -- auto-solve animation state; `resizeRaf` -- resize coalescing; `audioCtx`, `noiseBuffer` -- lazy Web Audio state
-- Best moves persisted to `localStorage` under `puzzle15-best` as `{ moves }`
+- `moves`, `won` -- runtime counters; `solving`, `solveTimer` -- auto-solve animation state; `resizeRaf` -- resize coalescing; `audioCtx`, `noiseBuffer`, `soundOn` -- lazy Web Audio state + persisted sound preference
+- Best moves persisted to `localStorage` under `puzzle15-best` as `{ moves }`; sound preference under `puzzle15-sound` (`on`/`off`, defaults to on)
 
 ### Public API (attached to `window`)
 
 - `newGame()` -- cancel any running solve, reset state, reshuffle, re-render
 - `resetBest()` -- clear localStorage best entry
-- `solveGame()` -- compute a near-optimal solution from the current position and play it out slide-by-slide; on completion the move counter resets to 0 and the best record is never touched (the attempt is voided). Tile clicks are ignored and the Solve button is disabled while the animation runs; New Game cancels it mid-flight.
+- `solveGame()` -- compute a near-optimal solution from the current position and play it out slide-by-slide; on completion the puzzle is set as complete (win overlay shows "Auto-solved", tile clicks locked) but the move counter resets to 0 and the best record is never touched (the attempt is voided). Tile clicks are ignored and the Solve button is disabled while the animation runs; New Game cancels it mid-flight.
+- `toggleSound()` -- flip the persisted sound preference and update the fixed top-right speaker button
 
 ### Solver notes
 
@@ -51,8 +52,8 @@ The entire application lives in one IIFE inside the `<script>` tag of `index.htm
 - Responsive layout via `clamp()`, `min()`, `aspect-ratio`
 - Touch-friendly: dual handlers (click + touchend), mobile-optimized shuffle depth
 - Shuffle guarantees solvability by starting from solved state and making random valid moves only
-- Auto-solve never updates the best record: a computer-played finish scores nothing, and the move counter resets to zero when its animation completes
-- Slide sound: a synthesized filtered-noise knock (Web Audio, no audio files) fires at the START of every animated slide (hooked in `positionTile`), so human moves and auto-solve sound alike. The envelope is short (65ms). An arrival-delayed variant (sound timed to the transition end, via the slot's computed duration) was tried and rejected -- the delay read as device lag, not impact. The AudioContext is unlocked on the first user gesture (`ensureAudio` in `handleClick`/`solveGame`); audio failures are silent no-ops and never affect gameplay
+- Auto-solve never updates the best record: pressing Solve completes the puzzle (win overlay reads "Auto-solved", the board locks like a normal win), the move counter resets to zero when its animation completes, and the best score stays untouched -- it represents the player's own achievement only
+- Slide sound: a synthesized filtered-noise knock (Web Audio, no audio files) fires at the START of every animated slide (hooked in `positionTile`), so human moves and auto-solve sound alike. The envelope is short (65ms). An arrival-delayed variant (sound timed to the transition end, via the slot's computed duration) was tried and rejected -- the delay read as device lag, not impact. A fixed circular speaker button at the top right toggles sound (persisted under `puzzle15-sound`); muting is a cheap guard in `playSlideSound`. The AudioContext is unlocked on the first user gesture (`ensureAudio` in `handleClick`/`solveGame`/`toggleSound`); audio failures are silent no-ops and never affect gameplay
 
 ## Making Changes
 
