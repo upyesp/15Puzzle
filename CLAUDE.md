@@ -16,16 +16,16 @@ The entire application lives in one IIFE inside the `<script>` tag of `index.htm
 
 | Lines | Section | Purpose |
 |-------|---------|---------|
-| 331-347 | State & DOM refs | Cached element references (board, stats, overlay, buttons) |
-| 349-361 | Persistence | `localStorage` reads/writes under key `puzzle15-best` |
-| 363-418 | Sound | Web Audio synthesized knock at the start of every animated slide, plus the persisted sound toggle (no assets) |
-| 420-473 | Rendering/geometry | Measures the board and positions tile slots via `translate()` |
-| 475-516 | Board build + game logic | Move handling, adjacency checks via Manhattan distance |
-| 518-553 | Win check | `handleWin(fromSolver)`: human wins record best + moves; solver finishes mark complete only |
-| 555-601 | Shuffling | Solvable shuffle starting from solved state with ~225 random moves |
-| 603-788 | Solver | Weighted IDA* (w=2) over walking-distance + Manhattan/linear-conflict heuristics |
-| 790-845 | Solve button | Animates the solver's move list; completes the puzzle (overlay, moves reset, best untouched) |
-| 847-862 | New game / Reset best | Public API entry points |
+| 387-403 | State & DOM refs | Cached element references (board, stats, overlay, buttons) |
+| 405-417 | Persistence | `localStorage` reads/writes under key `puzzle15-best` |
+| 419-474 | Sound | Web Audio synthesized knock at the start of every animated slide, plus the persisted sound toggle (no assets) |
+| 476-529 | Rendering/geometry | Measures the board and positions tile slots via `translate()` |
+| 531-572 | Board build + game logic | Move handling, adjacency checks via Manhattan distance |
+| 574-609 | Win check | `handleWin(fromSolver)`: human wins record best + moves; solver finishes mark complete only |
+| 611-657 | Shuffling | Solvable shuffle starting from solved state with ~225 random moves |
+| 659-844 | Solver | Weighted IDA* (w=2) over walking-distance + Manhattan/linear-conflict heuristics |
+| 846-901 | Solve button | Animates the solver's move list; completes the puzzle (overlay, moves reset, best untouched) |
+| 903-918 | New game / Reset best | Public API entry points |
 
 ### State model
 
@@ -49,6 +49,15 @@ The entire application lives in one IIFE inside the `<script>` tag of `index.htm
 ## PWA assets
 
 - Icons are designed as SVG and rasterized to PNG with `rsvg-convert` (Homebrew librsvg; ImageMagick's own SVG renderer mishandles text, qlmanage adds an opaque background). The "15" fills ~94% of the tile width. Glyph ink must be measured after render (`magick out.png txt:` + bright-pixel bbox) because the "1" glyph's left flag biases the ink box left of the text-anchor point; the SVG `x`/`y` values are empirically compensated so the *ink* centers (favicon fs=51 in a 64 viewBox at x=31.2/y=30.3; maskable fs=320, x=249.7/y=245.5, glyph inside the 80% safe-zone circle; apple-touch fs=150, x=88.3/y=85 on a full-bleed tile since iOS applies its own corner mask). `icon-maskable-512.png` must never equal `icon-512.png` -- maskable needs the full-bleed background or launchers clip it.
+
+## Layout system
+
+- One CSS variable drives the whole column: `--board: min(85vw, 440px, max(260px, calc(100dvh - 262px)))` — width-aware AND height-aware, so the board plus stats plus controls never scroll out of view. The stats bar, board wrapper and button row all use `width: var(--board)`.
+- Tile digit font scales with the board (`calc(var(--board) * 0.15)`), keeping the digit-to-tile proportion constant at every screen size (~62%).
+- Compact mode (`@media (max-height: 700px)`): hides the subtitle, tightens gaps/paddings, and re-derives `--board` (`min(92vw, max(224px, calc(100dvh - 158px)))`) so landscape phones and short windows still fit without scrolling.
+- Button hierarchy: New Game (primary) / Solve (secondary) / Reset Best (demoted `.btn-tertiary`, narrower + muted — rare and destructive, kept away from fat-fingers).
+- The win overlay carries its own "New Game" button (`.win-cta`), so the win -> next-round loop is one tap without hunting for the button row.
+- `overscroll-behavior: none` + `touch-action: manipulation` prevent pull-to-refresh and tap delays during fast play; all buttons have `:focus-visible` accent rings for keyboard play.
 
 ## Design Notes
 
